@@ -7,7 +7,7 @@
   // ---------------- helpers ----------------
   async function api(path, body) {
     const opt = body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {};
-    const r = await fetch(path, opt);
+    const r = await fetch(`https://divisions-medal-scroll-pierce.trycloudflare.com${path}`, opt);
     if (!r.ok) {
       let msg = r.statusText;
       try { msg = (await r.json()).error || msg; } catch (_) {}

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask_cors import CORS
 import io
 
 from lse import exporter, offline, payload
@@ -25,6 +26,7 @@ from lse.generator import (DEFAULT_MODEL, MODELS, FrameCache, LatentGenerator, d
 
 ROOT = Path(__file__).resolve().parent
 app = Flask(__name__, static_folder=str(ROOT / "static"), static_url_path="/static")
+CORS(app, resources={r"/api/*": {"origins": ["https://dynamic-cannoli-b98e9f.netlify.app"]}})
 
 MAX_STEPS = 24
 
