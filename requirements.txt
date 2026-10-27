@@ -1,0 +1,8 @@
+# PyTorch: the setup scripts install the CPU build (no NVIDIA GPU needed).
+torch>=1.13
+numpy>=1.21
+flask>=2.2
+pillow>=9.0
+requests>=2.25
+click>=8.0
+pytest>=7.0

@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+weights/*.pkl
+weights/*.part
+outputs/run_*
+.pytest_cache/
+Latent_Space_Explorer_OFFLINE.html
+Get-Content .\download_model.py

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Latent Space Explorer</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22/%3E%3Ccircle cx=%229%22 cy=%2216%22 r=%224%22 fill=%22%232a78d6%22/%3E%3Ccircle cx=%2223%22 cy=%2216%22 r=%224%22 fill=%22%23eb6834%22/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 32 32"><circle cx="7" cy="16" r="4"/><circle cx="25" cy="16" r="4"/><path d="M11 16 Q16 6 21 16" fill="none" stroke-width="2"/><circle cx="16" cy="11" r="2"/></svg>
+    </div>
+    <div>
+      <h1>Latent Space Explorer</h1>
+      <p class="sub">How changing a latent vector changes a StyleGAN2 image</p>
+    </div>
+  </div>
+  <div class="model-box">
+    <span id="statusPill" class="pill pill-wait"><span class="dot"></span><span id="statusText">Connecting…</span></span>
+    <label class="visually-hidden" for="modelSelect">Pretrained model</label>
+    <select id="modelSelect" title="Switch pretrained model"></select>
+    <button id="themeBtn" class="icon-btn" title="Toggle light / dark theme" aria-label="Toggle theme">◐</button>
+  </div>
+</header>
+
+<div id="banner" class="banner hidden"></div>
+
+<main class="layout">
+  <!-- ======================= CONTROLS ======================= -->
+  <aside class="card controls">
+    <h2>1 · Latent inputs</h2>
+
+    <div class="seed-row">
+      <div class="field">
+        <label for="seedA"><span class="tag tag-a">A</span> Start seed</label>
+        <div class="input-group">
+          <input id="seedA" type="number" min="0" max="4294967295" value="42" />
+          <button class="icon-btn dice" data-target="seedA" title="Random seed">⚄</button>
+        </div>
+      </div>
+      <button id="swapBtn" class="icon-btn swap" title="Swap A and B" aria-label="Swap seeds">⇅</button>
+      <div class="field">
+        <label for="seedB"><span class="tag tag-b">B</span> End seed</label>
+        <div class="input-group">
+          <input id="seedB" type="number" min="0" max="4294967295" value="1234" />
+          <button class="icon-btn dice" data-target="seedB" title="Random seed">⚄</button>
+        </div>
+      </div>
+    </div>
+    <p class="hint">Each seed deterministically produces a 512-D vector <b>z ~ N(0, I)</b>; the same seed always gives the same image.</p>
+
+    <h2>2 · Interpolation</h2>
+    <div class="field">
+      <span class="label">Method</span>
+      <div class="segmented" id="methodSeg" role="radiogroup">
+        <button data-v="slerp" class="active" role="radio" title="Spherical: follows the hypersphere where Gaussian latents live">Slerp (Z)</button>
+        <button data-v="lerp" role="radio" title="Straight line in Z: midpoints have smaller norm">Lerp (Z)</button>
+        <button data-v="w_lerp" role="radio" title="Map both to W first, then blend linearly — usually smoothest">Lerp (W)</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="steps">Frames (incl. endpoints) <output id="stepsOut">8</output></label>
+      <input id="steps" type="range" min="2" max="24" value="8" />
+    </div>
+    <div class="field">
+      <label for="psi">Truncation ψ <output id="psiOut">0.70</output></label>
+      <input id="psi" type="range" min="0" max="1.2" step="0.05" value="0.7" />
+      <p class="hint">Lower ψ pulls w toward the average face (cleaner, less varied).</p>
+    </div>
+
+    <button id="genBtn" class="primary" disabled>
+      <span class="btn-label">Generate interpolation</span>
+      <span class="spinner hidden"></span>
+    </button>
+    <button id="exportBtn" class="secondary" disabled title="Save endpoints, intermediates, grid, GIF and latents">
+      ⬇ Export outputs (.zip)
+    </button>
+    <button id="offlineBtn" class="secondary" disabled title="One HTML file with these seeds that opens on any laptop by double-click - no Python needed">
+      ⬇ Save offline page (.html)
+    </button>
+    <p id="timing" class="hint center"></p>
+  </aside>
+
+  <!-- ======================= STAGE ======================= -->
+  <section class="stage-col">
+    <div class="card stage">
+      <div class="stage-grid">
+        <figure class="endpoint">
+          <div class="img-wrap" id="wrapA"><img id="imgA" alt="Endpoint A" /><div class="ph">A</div></div>
+          <figcaption><span class="tag tag-a">A</span> seed <b id="capA">–</b> · t = 0</figcaption>
+        </figure>
+
+        <figure class="current">
+          <div class="img-wrap big" id="wrapCur">
+            <img id="imgCur" alt="Image at current t" />
+            <div class="ph">Pick two seeds and press <b>Generate</b></div>
+            <span id="exactBadge" class="badge hidden">exact t</span>
+          </div>
+          <figcaption>Current image · <b>t = <span id="tVal">0.000</span></b></figcaption>
+        </figure>
+
+        <figure class="endpoint">
+          <div class="img-wrap" id="wrapB"><img id="imgB" alt="Endpoint B" /><div class="ph">B</div></div>
+          <figcaption><span class="tag tag-b">B</span> seed <b id="capB">–</b> · t = 1</figcaption>
+        </figure>
+      </div>
+
+      <div class="slider-block">
+        <button id="playBtn" class="icon-btn play" disabled title="Play animation" aria-label="Play">▶</button>
+        <div class="slider-wrap">
+          <input id="tSlider" type="range" min="0" max="1" step="0.001" value="0" disabled aria-label="Latent interpolation slider t" />
+          <div id="ticks" class="ticks"></div>
+          <div class="slider-ends"><span>A (t = 0)</span><span>Latent interpolation slider</span><span>B (t = 1)</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Interpolation path <span class="muted" id="stripMeta"></span></h2>
+        <span class="legend-inline"><span class="sw sw-end"></span>endpoint <span class="sw sw-mid"></span>intermediate</span>
+      </div>
+      <div id="filmstrip" class="filmstrip"><p class="muted empty">Frames will appear here.</p></div>
+    </div>
+  </section>
+</main>
+
+<!-- ======================= VISUALISATIONS ======================= -->
+<section class="viz-section">
+  <h2 class="section-title">What is happening in latent space</h2>
+  <div class="viz-grid">
+    <div class="card viz">
+      <h3>Latent vector z (first 48 of 512 dims)</h3>
+      <p class="viz-sub">Each cell is one dimension. Watch the middle row morph from A to B as you drag the slider.</p>
+      <div id="heatmap" class="chart"></div>
+      <div class="diverge-legend"><span>−3</span><div class="bar"></div><span>+3</span></div>
+    </div>
+
+    <div class="card viz">
+      <h3>Latent norm ‖z(t)‖ along the path</h3>
+      <p class="viz-sub">Gaussian latents sit near radius √512 ≈ 22.6. Lerp cuts inside that shell; slerp stays on it.</p>
+      <div id="normChart" class="chart"></div>
+    </div>
+
+    <div class="card viz">
+      <h3>Similarity to each endpoint</h3>
+      <p class="viz-sub">Cosine similarity of the interpolated latent to A and to B at every frame.</p>
+      <div id="cosChart" class="chart"></div>
+    </div>
+
+    <div class="card viz">
+      <h3>How much the image changes per step</h3>
+      <p class="viz-sub">Mean absolute pixel change from the previous frame (0–255). Even bars = smooth walk.</p>
+      <div id="changeChart" class="chart"></div>
+    </div>
+
+    <div class="card viz">
+      <h3>Distribution of z values (endpoint A)</h3>
+      <p class="viz-sub">The 512 numbers in z_A, binned — they follow the standard normal curve the generator was trained on.</p>
+      <div id="histChart" class="chart"></div>
+    </div>
+
+    <div class="card viz">
+      <h3>Endpoint latent statistics</h3>
+      <p class="viz-sub">Summary of the two latent representations.</p>
+      <table class="stats" id="statsTable">
+        <thead><tr><th>Statistic</th><th><span class="tag tag-a">A</span></th><th><span class="tag tag-b">B</span></th></tr></thead>
+        <tbody><tr><td colspan="3" class="muted">Generate to see values.</td></tr></tbody>
+      </table>
+      <p class="viz-sub" id="angleNote"></p>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= PIPELINE ======================= -->
+<section class="viz-section">
+  <h2 class="section-title">How the generator maps a latent vector to an image</h2>
+  <div class="card pipeline">
+    <div class="pipe-step"><div class="pipe-k">Seed</div><div class="pipe-v" id="pSeed">42</div><div class="pipe-d">integer</div></div>
+    <div class="pipe-arrow">→<small>RandomState</small></div>
+    <div class="pipe-step"><div class="pipe-k">z</div><div class="pipe-v" id="pZ">(512,)</div><div class="pipe-d">~ N(0, I)</div></div>
+    <div class="pipe-arrow">→<small>Mapping MLP</small></div>
+    <div class="pipe-step"><div class="pipe-k">w</div><div class="pipe-v" id="pW">(14, 512)</div><div class="pipe-d">style per layer</div></div>
+    <div class="pipe-arrow">→<small>Truncation ψ</small></div>
+    <div class="pipe-step"><div class="pipe-k">w′</div><div class="pipe-v" id="pPsi">ψ = 0.70</div><div class="pipe-d">w̄ + ψ(w − w̄)</div></div>
+    <div class="pipe-arrow">→<small>Synthesis</small></div>
+    <div class="pipe-step"><div class="pipe-k">Image</div><div class="pipe-v" id="pImg">256×256×3</div><div class="pipe-d">4×4 → full res</div></div>
+  </div>
+  <p class="foot-note" id="modelNote"></p>
+</section>
+
+<footer class="footer">Latent Space Explorer · StyleGAN2 (NVIDIA pretrained weights) · Flask + vanilla JS · runs fully offline after first model download</footer>
+
+<div id="tooltip" class="tooltip hidden" role="tooltip"></div>
+<script src="/static/charts.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
